@@ -13,7 +13,7 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  late List todoList;
+  List todoList = [];
   final todoController = TextEditingController();
   late int indexLastRemoved;
   late Map<String, dynamic> lastRemoved;
@@ -23,7 +23,7 @@ class _HomePageState extends State<HomePage> {
     super.initState();
 
     readData().then((value) {
-      setState(() => todoList = jsonDecode(value!));
+      setState(() => todoList = json.decode(value!));
     });
   }
 
@@ -48,6 +48,8 @@ class _HomePageState extends State<HomePage> {
       todoList.add(newTask);
 
       saveData();
+
+      refreshList();
     });
   }
 
@@ -62,6 +64,25 @@ class _HomePageState extends State<HomePage> {
     final appPath = await getApplicationDocumentsDirectory();
 
     return File("${appPath.path}/todoList.json");
+  }
+
+  Future<void> refreshList() async {
+    await Future.delayed(Duration(seconds: 1));
+    setState(() {
+      todoList.sort((a, b) {
+        if (a['done'] && !b['done']) {
+          return 1;
+        }
+
+        if (!a['done'] && b['done']) {
+          return -1;
+        }
+
+        return 0;
+      });
+
+      saveData();
+    });
   }
 
   @override
@@ -119,7 +140,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget buildList() => RefreshIndicator(
-        onRefresh: onRefresh,
+        onRefresh: refreshList,
         child: ListView.builder(
           padding: EdgeInsets.only(
             top: 4.0,
@@ -133,8 +154,6 @@ class _HomePageState extends State<HomePage> {
           },
         ),
       );
-
-  Future<void> onRefresh() async {}
 
   Widget buildTask(BuildContext context, int index, dynamic item) =>
       Dismissible(
@@ -156,6 +175,7 @@ class _HomePageState extends State<HomePage> {
             todoList.removeAt(index);
 
             saveData();
+            refreshList();
 
             showCustomSnackBar(
               context: context,
@@ -164,7 +184,9 @@ class _HomePageState extends State<HomePage> {
               onSnackBarActionClicked: () {
                 setState(() {
                   todoList.insert(indexLastRemoved, lastRemoved);
+
                   saveData();
+                  refreshList();
                 });
               },
             );
@@ -185,7 +207,9 @@ class _HomePageState extends State<HomePage> {
         onChanged: (value) {
           setState(() {
             item['done'] = value;
+
             saveData();
+            refreshList();
           });
         },
       );
