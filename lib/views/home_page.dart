@@ -14,7 +14,9 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   List todoList = [];
-  final todoController = TextEditingController();
+  TextEditingController todoController = TextEditingController();
+  int doneLength = 0;
+  double progress = 1;
   late int indexLastRemoved;
   late Map<String, dynamic> lastRemoved;
 
@@ -22,35 +24,17 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
 
-    readData().then((value) {
-      setState(() => todoList = json.decode(value!));
-    });
+    readData().then((value) => setState(() => todoList = json.decode(value!)));
   }
 
   Future<String?> readData() async {
     try {
       final file = await openFile();
+
       return file.readAsString();
     } catch (e) {
       return null;
     }
-  }
-
-  void addTask() {
-    setState(() {
-      Map<String, dynamic> newTask = {};
-
-      newTask['title'] = todoController.text;
-      newTask['done'] = false;
-
-      todoController.clear();
-
-      todoList.add(newTask);
-
-      saveData();
-
-      refreshList();
-    });
   }
 
   Future<File> saveData() async {
@@ -70,13 +54,9 @@ class _HomePageState extends State<HomePage> {
     await Future.delayed(Duration(seconds: 1));
     setState(() {
       todoList.sort((a, b) {
-        if (a['done'] && !b['done']) {
-          return 1;
-        }
+        if (a['done'] && !b['done']) return 1;
 
-        if (!a['done'] && b['done']) {
-          return -1;
-        }
+        if (!a['done'] && b['done']) return -1;
 
         return 0;
       });
@@ -89,41 +69,47 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) => SafeArea(
         child: Scaffold(
           appBar: AppBar(title: Text('Todo List')),
-          body: Builder(
-            builder: (context) => Column(
-              children: [
-                buildForm(),
-                Expanded(
-                  child: buildList(),
-                ),
-              ],
-            ),
+          body: Builder(builder: (context) => buildList()),
+          floatingActionButton: FloatingActionButton(
+            child: Icon(Icons.add),
+            onPressed: buildForm,
           ),
         ),
       );
 
-  Widget buildForm() => Container(
-        padding: EdgeInsets.fromLTRB(defaultPadding, 8.0, defaultPadding, 24.0),
-        child: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: todoController,
-                maxLength: 40,
-                decoration: InputDecoration(labelText: 'Nova tarefa'),
-              ),
-            ),
-            SizedBox(width: defaultPadding),
-            SizedBox.square(
-              dimension: 45.0,
-              child: FloatingActionButton(
-                onPressed: addClicked,
-                child: Icon(Icons.add),
-              ),
-            ),
-          ],
+  void buildForm() {
+    Future<Map<String, dynamic>?> task = showDialog<Map<String, dynamic>?>(
+      context: context,
+      barrierDismissible: false,
+      useSafeArea: true,
+      builder: (context) => AlertDialog(
+        title: Text('Adicionar tarefa'),
+        content: TextField(
+          controller: todoController,
+          maxLength: 40,
+          decoration: InputDecoration(labelText: 'Nova tarefa'),
         ),
-      );
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Cancelar'),
+          ),
+          ElevatedButton(onPressed: addClicked, child: Text('Adicionar')),
+        ],
+      ),
+    );
+
+    task.then((value) {
+      setState(() {
+        todoList.add(value!);
+
+        todoController.clear();
+
+        saveData();
+        refreshList();
+      });
+    });
+  }
 
   void addClicked() {
     if (todoController.text.isEmpty) {
@@ -135,17 +121,19 @@ class _HomePageState extends State<HomePage> {
             ScaffoldMessenger.of(context).removeCurrentSnackBar(),
       );
     } else {
-      addTask();
+      Map<String, dynamic> newTask = {};
+
+      newTask['title'] = todoController.text;
+      newTask['done'] = false;
+
+      Navigator.pop(context, newTask);
     }
   }
 
   Widget buildList() => RefreshIndicator(
         onRefresh: refreshList,
         child: ListView.builder(
-          padding: EdgeInsets.only(
-            top: 4.0,
-            bottom: defaultPadding,
-          ),
+          padding: EdgeInsets.all(defaultPadding),
           itemCount: todoList.length,
           itemBuilder: (context, index) {
             final item = todoList[index];
@@ -160,41 +148,15 @@ class _HomePageState extends State<HomePage> {
         key: Key(DateTime.now().millisecondsSinceEpoch.toString()),
         background: Container(
           color: Colors.red,
-          child: Align(
-            alignment: Alignment(0.85, 0.0),
-            child: Icon(Icons.delete_sweep, color: Colors.white),
-          ),
+          alignment: Alignment(0.85, 0.0),
+          child: Icon(Icons.delete_sweep, color: Colors.white),
         ),
         direction: DismissDirection.endToStart,
-        child: buildWidget(item),
-        onDismissed: (dismissed) {
-          setState(() {
-            lastRemoved = Map.from(item);
-            indexLastRemoved = index;
-
-            todoList.removeAt(index);
-
-            saveData();
-            refreshList();
-
-            showCustomSnackBar(
-              context: context,
-              title: 'A tarefa "${lastRemoved['title']}" foi excluída',
-              snackBarActionLabel: 'Desfazer',
-              onSnackBarActionClicked: () {
-                setState(() {
-                  todoList.insert(indexLastRemoved, lastRemoved);
-
-                  saveData();
-                  refreshList();
-                });
-              },
-            );
-          });
-        },
+        child: buildItemWidget(item),
+        onDismissed: (dismissed) => dismissItem(dismissed, item, index),
       );
 
-  Widget buildWidget(dynamic item) => CheckboxListTile(
+  Widget buildItemWidget(dynamic item) => CheckboxListTile(
         value: item['done'],
         secondary: CircleAvatar(
           backgroundColor: Theme.of(context).primaryColor,
@@ -204,13 +166,37 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
         title: Text(item['title']),
-        onChanged: (value) {
-          setState(() {
-            item['done'] = value;
+        onChanged: (value) => setState(() {
+          item['done'] = value;
 
-            saveData();
-            refreshList();
-          });
-        },
+          print("Done length: $doneLength\nList Length: ${todoList.length}");
+
+          saveData();
+          refreshList();
+        }),
       );
+
+  void dismissItem(DismissDirection dismissed, dynamic item, int index) {
+    setState(() {
+      lastRemoved = Map.from(item);
+      indexLastRemoved = index;
+
+      todoList.removeAt(index);
+
+      saveData();
+
+      showCustomSnackBar(
+        context: context,
+        title: 'A tarefa "${lastRemoved['title']}" foi excluída',
+        snackBarActionLabel: 'Desfazer',
+        onSnackBarActionClicked: () => setState(() {
+          todoList.insert(indexLastRemoved, lastRemoved);
+
+          saveData();
+        }),
+      );
+
+      refreshList();
+    });
+  }
 }
